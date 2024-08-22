@@ -1,6 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const createCsvWriter = require("csv-writer").createObjectCsvWriter;
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -36,30 +37,75 @@ const activitySchema = new mongoose.Schema({
 
 const Activity = mongoose.model("Activity", activitySchema);
 
-async function getAverageDangerLevel(sessionId) {
+// Function to calculate and save averages into CSV files
+async function calculateAndSaveAverages() {
   try {
     const result = await Activity.aggregate([
-      {
-        $match: { sessionId: sessionId },
-      },
       {
         $group: {
           _id: "$sessionId",
           averageDangerLevel: { $avg: "$dangerLevel" },
+          averageMovement: { $avg: "$movement" },
         },
       },
     ]);
 
     if (result.length > 0) {
-      return result[0].averageDangerLevel;
+      // Prepare data for CSV files
+      const dangerLevelData = result.map((session) => ({
+        sessionId: session._id,
+        averageDangerLevel: session.averageDangerLevel,
+      }));
+
+      const movementData = result.map((session) => ({
+        sessionId: session._id,
+        averageMovement: session.averageMovement,
+      }));
+
+      // CSV Writers
+      const dangerLevelCsvWriter = createCsvWriter({
+        path: "danger_level_averages.csv",
+        header: [
+          { id: "sessionId", title: "Session ID" },
+          { id: "averageDangerLevel", title: "Average Danger Level" },
+        ],
+      });
+
+      const movementCsvWriter = createCsvWriter({
+        path: "movement_averages.csv",
+        header: [
+          { id: "sessionId", title: "Session ID" },
+          { id: "averageMovement", title: "Average Movement" },
+        ],
+      });
+
+      // Write to CSV files
+      await dangerLevelCsvWriter.writeRecords(dangerLevelData);
+      await movementCsvWriter.writeRecords(movementData);
+
+      console.log(
+        "CSV files for danger level and movement averages have been created successfully."
+      );
     } else {
-      return null; // No records found for this session
+      console.log("No records found.");
     }
   } catch (error) {
-    console.error("Error calculating average danger level:", error);
+    console.error("Error calculating averages:", error);
     throw error;
   }
 }
+
+// Endpoint to trigger CSV generation
+app.get("/generate-averages-csv", async (req, res) => {
+  try {
+    await calculateAndSaveAverages();
+    res
+      .status(200)
+      .json({ message: "CSV files with averages generated successfully." });
+  } catch (error) {
+    res.status(500).json({ message: "Error generating CSV files.", error });
+  }
+});
 
 app.post("/activities", async (req, res) => {
   try {
